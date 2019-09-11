@@ -4,7 +4,7 @@
 
 > **⚠️ Warning!** Not stable yet. Do not recommend using this on a production environment.
 
-### ⚠️ Important
+### Important 💰
 
 There are few limitations because this plugin is currently in beta. But I will try to get them working when I get some free time.
 
