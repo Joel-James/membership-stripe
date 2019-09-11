@@ -7,7 +7,7 @@
  * @since   1.0.0
  * @author  Joel James <me@joelsays.com>
  */
-class MS_Gateway_Stripecheckout extends MS_Gateway {
+class MS_Gateway_StripeCheckout extends MS_Gateway {
 
 	/**
 	 * Unique ID for the gateway.
@@ -89,11 +89,11 @@ class MS_Gateway_Stripecheckout extends MS_Gateway {
 	 */
 	public function after_load() {
 		parent::after_load();
-		$this->_api = MS_Factory::load( 'MS_Gateway_Stripecheckout_Api' );
+		$this->_api = MS_Factory::load( 'MS_Gateway_StripeCheckout_Api' );
 
 		// If the gateway is initialized for the first time then copy settings.
 		if ( false === $this->test_secret_key ) {
-			$single                     = MS_Factory::load( 'MS_Gateway_Stripe' );
+			$single                     = MS_Factory::load( 'MS_Gateway_Stripeplan' );
 			$this->test_secret_key      = $single->test_secret_key;
 			$this->secret_key           = $single->secret_key;
 			$this->test_publishable_key = $single->test_publishable_key;
@@ -102,7 +102,7 @@ class MS_Gateway_Stripecheckout extends MS_Gateway {
 		}
 
 		$this->id                        = self::ID;
-		$this->name                      = __( 'Stripe Checkout 2.0 Gateway', 'membership-stripe' );
+		$this->name                      = __( 'Stripe Checkout Gateway', 'membership-stripe' );
 		$this->group                     = 'Stripe Checkout';
 		$this->manual_payment            = false; // Recurring charged automatically.
 		$this->pro_rate                  = true;
@@ -114,7 +114,7 @@ class MS_Gateway_Stripecheckout extends MS_Gateway {
 
 		// Update all payment plans and coupons.
 		$this->add_action(
-			'ms_gateway_toggle_stripeplan',
+			'ms_gateway_toggle_stripecheckout',
 			'update_stripe_data'
 		);
 
@@ -155,6 +155,38 @@ class MS_Gateway_Stripecheckout extends MS_Gateway {
 		}
 
 		return $publishable_key;
+	}
+
+	/**
+	 * Creates the external Stripe-ID of the specified item.
+	 *
+	 * This ID takes the current WordPress Site-URL into account to avoid
+	 * collissions when several Membership2 sites use the same stripe account.
+	 *
+	 * @note  : This is for backward compatibility.
+	 *
+	 * @param int    $id   The internal ID.
+	 * @param string $type The item type, e.g. 'plan' or 'coupon'.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string The external Stripe-ID.
+	 */
+	static public function get_the_id( $id, $type = 'item' ) {
+		static $Base = null;
+		if ( null === $Base ) {
+			$Base = get_option( 'site_url' );
+		}
+
+		$hash   = strtolower( md5( $Base . $type . $id ) );
+		$hash   = mslib3()->convert(
+			$hash,
+			'0123456789abcdef',
+			'0123456789ABCDEFGHIJKLMNOPQRSTUVXXYZabcdefghijklmnopqrstuvxxyz'
+		);
+		$result = 'ms-' . $type . '-' . $id . '-' . $hash;
+
+		return $result;
 	}
 
 	/**

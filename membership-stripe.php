@@ -31,6 +31,7 @@ add_filter( 'ms_model_gateway_register', 'membership_stripe_register_gateway' );
 function membership_stripe_load_dependencies() {
 	include_once 'includes/class-ms-gateway-stripecheckout.php';
 	include_once 'includes/class-ms-gateway-stripecheckout-api.php';
+	include_once 'includes/view/class-ms-gateway-stripecheckout-view-button.php';
 	include_once 'includes/view/class-ms-gateway-stripecheckout-view-settings.php';
 }
 
@@ -45,7 +46,7 @@ function membership_stripe_load_dependencies() {
  */
 function membership_stripe_register_gateway( $list ) {
 	// Add our custom gateway.
-	$list['stripecheckout'] = 'MS_Gateway_Stripecheckout';
+	$list['stripecheckout'] = 'MS_Gateway_StripeCheckout';
 
 	return $list;
 }

@@ -5,6 +5,10 @@ require_once M2STRIPE_DIR . '/vendor/autoload.php';
 
 use Stripe\Stripe as StripeCheckout;
 use Stripe\Customer as StripeCheckoutCustomer;
+use Stripe\Charge as StripeCheckoutCharge;
+use Stripe\Subscription as StripeCheckoutSubscription;
+use Stripe\Plan as StripeCheckoutPlan;
+use Stripe\Coupon as StripeCheckoutCoupon;
 
 /**
  * Class that handles API functionality of Stripe checkout.
@@ -13,7 +17,7 @@ use Stripe\Customer as StripeCheckoutCustomer;
  * @since   1.0.0
  * @author  Joel James <me@joelsays.com>
  */
-class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
+class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 
 	/**
 	 * Gateway class unique ID.
@@ -32,9 +36,9 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	public static $instance;
 
 	/**
-	 * Holds a reference to the parent gateway (either stripe or stripeplan)
+	 * Holds a reference to the parent gateway (either stripe or stripecheckout)
 	 *
-	 * @var MS_Gateway_Stripe|MS_Gateway_Stripeplan
+	 * @var MS_Gateway_Stripe|MS_Gateway_StripeCheckout
 	 *
 	 * @since 1.0.0
 	 */
@@ -190,24 +194,21 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 * @param string                 $currency    3-digit currency code.
 	 * @param string                 $description This is displayed on the invoice to customer.
 	 *
-	 * @since  1.0.0
-	 * @return Stripe_Charge The resulting charge object.
-	 * @internal
+	 * @since 1.0.0
 	 *
+	 * @return StripeCheckoutCharge The resulting charge object.
 	 */
 	public function charge( $customer, $amount, $currency, $description ) {
-		$amount = apply_filters(
-			'ms_gateway_stripe_charge_amount',
-			$amount,
-			$currency
-		);
-
-		$charge = Stripe_Charge::create( [
-			'customer'    => $customer->id,
-			'amount'      => intval( strval( $amount * 100 ) ), // Amount in cents!
-			'currency'    => strtolower( $currency ),
-			'description' => $description,
-		] );
+		try {
+			$charge = StripeCheckoutCharge::create( [
+				'customer'    => $customer->id,
+				'amount'      => intval( strval( $amount * 100 ) ), // Amount in cents!
+				'currency'    => strtolower( $currency ),
+				'description' => $description,
+			] );
+		} catch ( Exception $e ) {
+			$charge = null;
+		}
 
 		return $charge;
 	}
@@ -226,7 +227,7 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 * @return Stripe_Subscription|false The resulting charge object.
 	 */
 	public function get_subscription( $customer, $membership ) {
-		$plan_id = MS_Gateway_Stripeplan::get_the_id(
+		$plan_id = MS_Gateway_StripeCheckout::get_the_id(
 			$membership->id,
 			'plan'
 		);
@@ -265,10 +266,10 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @return Stripe_Subscription $subscription
+	 * @return StripeCheckoutSubscription $subscription
 	 */
 	public function get_subscription_data( $subscription_data, $membership ) {
-		$plan_id = MS_Gateway_Stripeplan::get_the_id(
+		$plan_id = MS_Gateway_StripeCheckout::get_the_id(
 			$membership->id,
 			'plan'
 		);
@@ -281,13 +282,7 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 			}
 		}
 
-
-		return apply_filters(
-			'ms_gateway_stripe_get_subscription',
-			$subscription,
-			$membership,
-			$this
-		);
+		return $subscription;
 	}
 
 	/**
@@ -296,14 +291,13 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 * @param StripeCheckoutCustomer $customer Stripe customer to charge.
 	 * @param MS_Model_Invoice       $invoice  The relevant invoice.
 	 *
-	 * @since  1.0.0
-	 * @return Stripe_Subscription The resulting charge object.
-	 * @internal
+	 * @since 1.0.0
 	 *
+	 * @return StripeCheckoutSubscription The resulting charge object.
 	 */
 	public function subscribe( $customer, $invoice ) {
 		$membership = $invoice->get_membership();
-		$plan_id    = MS_Gateway_Stripeplan::get_the_id(
+		$plan_id    = MS_Gateway_StripeCheckout::get_the_id(
 			$membership->id,
 			'plan'
 		);
@@ -318,6 +312,7 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 			} catch ( Exception $e ) {
 				// Well, failed to cancel.
 			}
+
 			// No subscription.
 			$subscription = false;
 		}
@@ -333,7 +328,7 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 				$tax_percent = floatval( $invoice->tax_rate );
 			}
 			if ( $invoice->coupon_id ) {
-				$coupon_id = MS_Gateway_Stripeplan::get_the_id(
+				$coupon_id = MS_Gateway_StripeCheckout::get_the_id(
 					$invoice->coupon_id,
 					'coupon'
 				);
@@ -347,14 +342,7 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 			$subscription = $customer->subscriptions->create( $args );
 		}
 
-		return apply_filters(
-			'ms_gateway_stripe_subscribe',
-			$subscription,
-			$customer,
-			$invoice,
-			$membership,
-			$this
-		);
+		return $subscription;
 	}
 
 	/**
@@ -362,20 +350,18 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 *
 	 * @param array $plan_data The plan-object containing all details for Stripe.
 	 *
-	 * @since  1.0.0
-	 * @internal
-	 *
+	 * @since 1.0.0
 	 */
 	public function create_or_update_plan( $plan_data ) {
 		$item_id   = $plan_data['id'];
-		$all_items = MS_Factory::get_transient( 'ms_stripeplan_plans' );
+		$all_items = MS_Factory::get_transient( 'ms_stripecheckout_plans' );
 		$all_items = mslib3()->array->get( $all_items );
 
 		if ( ! isset( $all_items[ $item_id ] )
-		     || ! is_a( $all_items[ $item_id ], 'Stripe_Plan' )
+		     || ! is_a( $all_items[ $item_id ], 'StripeCheckoutPlan' )
 		) {
 			try {
-				$item = Stripe_Plan::retrieve( $item_id );
+				$item = StripeCheckoutPlan::retrieve( $item_id );
 			} catch ( Exception $e ) {
 				// If the plan does not exist then stripe will throw an Exception.
 				$item = false;
@@ -389,18 +375,22 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 		 * Stripe can only update the plan-name, so we have to delete and
 		 * recreate the plan manually.
 		 */
-		if ( $item && is_a( $item, 'Stripe_Plan' ) ) {
+		if ( $item && is_a( $item, 'StripeCheckoutPlan' ) ) {
 			$item->delete();
 			$all_items[ $item_id ] = false;
 		}
 
 		if ( $plan_data['amount'] > 0 ) {
-			$item                  = Stripe_Plan::create( $plan_data );
-			$all_items[ $item_id ] = $item;
+			try {
+				$item                  = StripeCheckoutPlan::create( $plan_data );
+				$all_items[ $item_id ] = $item;
+			} catch ( Exception $e ) {
+				// Nothing.
+			}
 		}
 
 		MS_Factory::set_transient(
-			'ms_stripeplan_plans',
+			'ms_stripecheckout_plans',
 			$all_items,
 			HOUR_IN_SECONDS
 		);
@@ -411,20 +401,18 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	 *
 	 * @param array $coupon_data The object containing all details for Stripe.
 	 *
-	 * @since  1.0.0
-	 * @internal
-	 *
+	 * @since 1.0.0
 	 */
 	public function create_or_update_coupon( $coupon_data ) {
 		$item_id   = $coupon_data['id'];
-		$all_items = MS_Factory::get_transient( 'ms_stripeplan_plans' );
+		$all_items = MS_Factory::get_transient( 'ms_stripecheckout_plans' );
 		$all_items = mslib3()->array->get( $all_items );
 
 		if ( ! isset( $all_items[ $item_id ] )
-		     || ! is_a( $all_items[ $item_id ], 'Stripe_Coupon' )
+		     || ! is_a( $all_items[ $item_id ], 'StripeCheckoutCoupon' )
 		) {
 			try {
-				$item = Stripe_Coupon::retrieve( $item_id );
+				$item = StripeCheckoutCoupon::retrieve( $item_id );
 			} catch ( Exception $e ) {
 				// If the coupon does not exist then stripe will throw an Exception.
 				$item = false;
@@ -438,16 +426,24 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 		 * Stripe can only update the coupon-name, so we have to delete and
 		 * recreate the coupon manually.
 		 */
-		if ( $item && is_a( $item, 'Stripe_Coupon' ) ) {
-			$item->delete();
-			$all_items[ $item_id ] = false;
+		if ( $item && is_a( $item, 'StripeCheckoutCoupon' ) ) {
+			try {
+				$item->delete();
+				$all_items[ $item_id ] = false;
+			} catch ( Exception $e ) {
+				// Nothing.
+			}
 		}
 
-		$item                  = Stripe_Coupon::create( $coupon_data );
-		$all_items[ $item_id ] = $item;
+		try {
+			$item                  = StripeCheckoutCoupon::create( $coupon_data );
+			$all_items[ $item_id ] = $item;
+		} catch ( Exception $e ) {
+			// Nothing.
+		}
 
 		MS_Factory::set_transient(
-			'ms_stripeplan_coupons',
+			'ms_stripecheckout_coupons',
 			$all_items,
 			HOUR_IN_SECONDS
 		);
@@ -457,22 +453,20 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 	/**
 	 * Deleted the coupon specified by the function parameter.
 	 *
-	 * @param string $coupon_id -  The coupon id
+	 * @param string $coupon_id The coupon id
 	 *
-	 * @since  1.1.5
-	 * @internal
-	 *
+	 * @since 1.0.0
 	 */
 	public function delete_coupon( $coupon_id ) {
 		$item_id   = $coupon_id;
-		$all_items = MS_Factory::get_transient( 'ms_stripeplan_plans' );
+		$all_items = MS_Factory::get_transient( 'ms_stripecheckout_plans' );
 		$all_items = mslib3()->array->get( $all_items );
 
 		if ( ! isset( $all_items[ $item_id ] )
-		     || ! is_a( $all_items[ $item_id ], 'Stripe_Coupon' )
+		     || ! is_a( $all_items[ $item_id ], 'StripeCheckoutCoupon' )
 		) {
 			try {
-				$item = Stripe_Coupon::retrieve( $item_id );
+				$item = StripeCheckoutCoupon::retrieve( $item_id );
 			} catch ( Exception $e ) {
 				// If the coupon does not exist then stripe will throw an Exception.
 				$item = false;
@@ -483,12 +477,17 @@ class MS_Gateway_Stripecheckout_Api extends MS_Model_Option {
 		}
 
 		// Delete Coupon.
-		if ( $item && is_a( $item, 'Stripe_Coupon' ) ) {
-			$item->delete();
-			$all_items[ $item_id ] = false;
+		if ( $item && is_a( $item, 'StripeCheckoutCoupon' ) ) {
+			try {
+				$item->delete();
+				$all_items[ $item_id ] = false;
+			} catch ( Exception $e ) {
+				// Nothing.
+			}
 		}
+
 		MS_Factory::set_transient(
-			'ms_stripeplan_coupons',
+			'ms_stripecheckout_coupons',
 			$all_items,
 			HOUR_IN_SECONDS
 		);
