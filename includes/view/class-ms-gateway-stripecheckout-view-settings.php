@@ -1,6 +1,6 @@
 <?php
 
-class MS_Gateway_Stripecheckout_View_Settings extends MS_View {
+class MS_Gateway_StripeCheckout_View_Settings extends MS_View {
 
 	public function to_html() {
 		$fields = $this->prepare_fields();

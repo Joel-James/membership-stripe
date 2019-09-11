@@ -4,11 +4,11 @@
 require_once M2STRIPE_DIR . '/vendor/autoload.php';
 
 use Stripe\Stripe as StripeCheckout;
-use Stripe\Customer as StripeCheckoutCustomer;
-use Stripe\Charge as StripeCheckoutCharge;
-use Stripe\Subscription as StripeCheckoutSubscription;
 use Stripe\Plan as StripeCheckoutPlan;
-use Stripe\Coupon as StripeCheckoutCoupon;
+use Stripe\Charge as StripeCheckoutCharge;
+use Stripe\Customer as StripeCheckoutCustomer;
+use Stripe\Checkout\Session as StripeCheckoutSession;
+use Stripe\Subscription as StripeCheckoutSubscription;
 
 /**
  * Class that handles API functionality of Stripe checkout.
@@ -52,25 +52,49 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	 * @param MS_Gateway $gateway The parent gateway.
 	 *
 	 * @since 1.0.0
-	 *
 	 */
 	public function set_gateway( $gateway ) {
-		static $loaded = false;
-
-		if ( ! $loaded && class_exists( 'StripeCheckout' ) ) {
-			$loaded = true;
-		}
-
 		$this->_gateway = $gateway;
 
-		$secret_key = $this->_gateway->get_secret_key();
-
 		// Setup API key.
-		StripeCheckout::setApiKey( $secret_key );
+		StripeCheckout::setApiKey( $this->_gateway->get_secret_key() );
 
-		// Make sure everyone is using the same API version. we can update this if/when necessary.
 		// If we don't set this, Stripe will use latest version, which may break our implementation.
 		StripeCheckout::setApiVersion( '2019-09-09' );
+	}
+
+	/**
+	 * Create and return a new checkout session.
+	 *
+	 * @param string $plan Plan ID.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string
+	 */
+	public function get_session( $plan ) {
+		try {
+			$session = StripeCheckoutSession::create( [
+				'payment_method_types' => [ 'card' ],
+				'subscription_data'    => [
+					'items' => [
+						[
+							'plan' => $plan,
+						],
+					],
+				],
+				'success_url'          => site_url() . add_query_arg( 'stripe-checkout-sucess', 1 ),
+				'cancel_url'           => site_url() . add_query_arg( 'stripe-checkout-sucess', 0 ),
+			] );
+
+			// Get generated session id.
+			$session = $session->id;
+		} catch ( Exception $e ) {
+			error_log( $e->getMessage() );
+			$session = '';
+		}
+
+		return $session;
 	}
 
 	/**
@@ -79,7 +103,7 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	 * @param MS_Model_Member $member The member.
 	 * @param string          $token  The credit card token.
 	 *
-	 * @since  1.0.0
+	 * @since 1.0.0
 	 *
 	 * @return StripeCheckoutCustomer $customer
 	 */
@@ -391,103 +415,6 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 
 		MS_Factory::set_transient(
 			'ms_stripecheckout_plans',
-			$all_items,
-			HOUR_IN_SECONDS
-		);
-	}
-
-	/**
-	 * Creates or updates the coupon specified by the function parameter.
-	 *
-	 * @param array $coupon_data The object containing all details for Stripe.
-	 *
-	 * @since 1.0.0
-	 */
-	public function create_or_update_coupon( $coupon_data ) {
-		$item_id   = $coupon_data['id'];
-		$all_items = MS_Factory::get_transient( 'ms_stripecheckout_plans' );
-		$all_items = mslib3()->array->get( $all_items );
-
-		if ( ! isset( $all_items[ $item_id ] )
-		     || ! is_a( $all_items[ $item_id ], 'StripeCheckoutCoupon' )
-		) {
-			try {
-				$item = StripeCheckoutCoupon::retrieve( $item_id );
-			} catch ( Exception $e ) {
-				// If the coupon does not exist then stripe will throw an Exception.
-				$item = false;
-			}
-			$all_items[ $item_id ] = $item;
-		} else {
-			$item = $all_items[ $item_id ];
-		}
-
-		/*
-		 * Stripe can only update the coupon-name, so we have to delete and
-		 * recreate the coupon manually.
-		 */
-		if ( $item && is_a( $item, 'StripeCheckoutCoupon' ) ) {
-			try {
-				$item->delete();
-				$all_items[ $item_id ] = false;
-			} catch ( Exception $e ) {
-				// Nothing.
-			}
-		}
-
-		try {
-			$item                  = StripeCheckoutCoupon::create( $coupon_data );
-			$all_items[ $item_id ] = $item;
-		} catch ( Exception $e ) {
-			// Nothing.
-		}
-
-		MS_Factory::set_transient(
-			'ms_stripecheckout_coupons',
-			$all_items,
-			HOUR_IN_SECONDS
-		);
-	}
-
-
-	/**
-	 * Deleted the coupon specified by the function parameter.
-	 *
-	 * @param string $coupon_id The coupon id
-	 *
-	 * @since 1.0.0
-	 */
-	public function delete_coupon( $coupon_id ) {
-		$item_id   = $coupon_id;
-		$all_items = MS_Factory::get_transient( 'ms_stripecheckout_plans' );
-		$all_items = mslib3()->array->get( $all_items );
-
-		if ( ! isset( $all_items[ $item_id ] )
-		     || ! is_a( $all_items[ $item_id ], 'StripeCheckoutCoupon' )
-		) {
-			try {
-				$item = StripeCheckoutCoupon::retrieve( $item_id );
-			} catch ( Exception $e ) {
-				// If the coupon does not exist then stripe will throw an Exception.
-				$item = false;
-			}
-			$all_items[ $item_id ] = $item;
-		} else {
-			$item = $all_items[ $item_id ];
-		}
-
-		// Delete Coupon.
-		if ( $item && is_a( $item, 'StripeCheckoutCoupon' ) ) {
-			try {
-				$item->delete();
-				$all_items[ $item_id ] = false;
-			} catch ( Exception $e ) {
-				// Nothing.
-			}
-		}
-
-		MS_Factory::set_transient(
-			'ms_stripecheckout_coupons',
 			$all_items,
 			HOUR_IN_SECONDS
 		);
