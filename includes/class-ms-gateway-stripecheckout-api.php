@@ -72,8 +72,22 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	 *
 	 * @return string
 	 */
-	public function get_session( $plan ) {
+	public function get_session( $plan, $subscription_id, $step ) {
 		try {
+			// Base items required.
+			$return_args = [
+				'step'               => $step,
+				'gateway'            => $this->_gateway->id,
+				'ms_relationship_id' => $subscription_id,
+				'_wpnonce'           => wp_create_nonce(
+					$this->_gateway->id . '_' . $subscription_id
+				),
+			];
+
+			// Custom return urls.
+			$return_args_success = array_merge( [ 'stripe-checkout-success' => 1 ], $return_args );
+			$return_args_cancel  = array_merge( [ 'stripe-checkout-success' => 0 ], $return_args );
+
 			$session = StripeCheckoutSession::create( [
 				'payment_method_types' => [ 'card' ],
 				'subscription_data'    => [
@@ -83,8 +97,8 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 						],
 					],
 				],
-				'success_url'          => site_url() . add_query_arg( 'stripe-checkout-sucess', 1 ),
-				'cancel_url'           => site_url() . add_query_arg( 'stripe-checkout-sucess', 0 ),
+				'success_url'          => site_url() . add_query_arg( $return_args_success ),
+				'cancel_url'           => site_url() . add_query_arg( $return_args_cancel ),
 			] );
 
 			// Get generated session id.

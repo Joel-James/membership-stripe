@@ -195,11 +195,15 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	/**
 	 * Create and return a new checkout session.
 	 *
+	 * @param int $membership_id   Membership ID.
+	 * @param int $subscription_id Subscription relationship ID.
+	 * @param int $step            Current step.
+	 *
 	 * @since 1.0.0
 	 *
 	 * @return string
 	 */
-	public function get_session( $membership_id ) {
+	public function get_session( $membership_id, $subscription_id, $step ) {
 		$this->_api->set_gateway( $this );
 
 		$plan_id = self::get_the_id(
@@ -209,7 +213,7 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 
 		//$plan_id = 'ms-plan-1459-6kIo9KTpcNmAlpyCiYM6Yy';
 
-		return $this->_api->get_session( $plan_id );
+		return $this->_api->get_session( $plan_id, $subscription_id, $step );
 	}
 
 	/**
@@ -227,6 +231,74 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 		$is_configured = ( ! empty( $key_pub ) && ! empty( $key_sec ) );
 
 		return $is_configured;
+	}
+
+	/**
+	 * Process the return after payment.
+	 *
+	 * We can not simply do anything here as we don't know the status of payment.
+	 * We will process the subscription once we receive the webhook.
+	 *
+	 * @param MS_Model_Relationship $subscription The related membership relationship.
+	 *
+	 * @todo We need to properly handle the payment return. Currently we are always marking
+	 *       the invoice as paid.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return mixed|void
+	 */
+	public function process_purchase( $subscription ) {
+		$success     = false;
+
+		$this->_api->set_gateway( $this );
+
+		// Get the invoice.
+		$invoice = $subscription->get_next_billable_invoice();
+
+		// If the stripe flag is true.
+		if ( isset( $_GET['stripe-checkout-success'] ) && 1 == $_GET['stripe-checkout-success'] ) {
+			try {
+				// Free, just process.
+				if ( 0 == $invoice->total ) {
+					$invoice->changed();
+					$success = true;
+					$note    = __( 'No payment for free membership', 'membership-stripe' );
+				} else {
+					// We are marking it as paid.
+					$invoice->pay_it( self::ID );
+					$note    = __( 'Payment successful', 'membership-stripe' );
+					$success = true;
+				}
+			} catch ( Exception $e ) {
+				$note = 'Stripe error: ' . $e->getMessage();
+				MS_Model_Event::save_event( MS_Model_Event::TYPE_PAYMENT_FAILED, $subscription );
+			}
+		} else {
+			// Payment failed.
+			$note = __( 'Stripe payment failed. Please try again.', 'membership-stripe' );
+		}
+
+		// Save invoice.
+		$invoice->gateway_id = self::ID;
+		$invoice->save();
+
+		// Debug log.
+		MS_Helper_Debug::debug_log( $note );
+
+		do_action(
+			'ms_gateway_transaction_log',
+			self::ID, // gateway ID
+			'process', // request|process|handle
+			$success, // success flag
+			$subscription->id, // subscription ID
+			$invoice->id, // invoice ID
+			$invoice->total, // charged amount
+			$note, // Descriptive text
+			'' // External ID
+		);
+
+		return $invoice;
 	}
 
 	/**

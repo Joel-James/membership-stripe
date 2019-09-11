@@ -20,6 +20,9 @@ class MS_Gateway_StripeCheckout_View_Button extends MS_View {
 	 * @return string
 	 */
 	public function to_html() {
+		if ( ! empty( $_GET['stripe-checkout-sucess'] ) ) {
+			error_log( print_r( $_REQUEST, true ) );
+		}
 		// Current subscription.
 		$subscription = $this->data['ms_relationship'];
 		// Current invoice.
@@ -40,15 +43,11 @@ class MS_Gateway_StripeCheckout_View_Button extends MS_View {
                 <script src="https://js.stripe.com/v3/"></script>
                 <button id="membership-stripe-checkout-button"><?php esc_html_e( 'Subscribe', 'membership-stripe' ); ?></button>
                 <script>
-					// Create new instance of Stripe.
 					var stripe = Stripe('<?php echo $gateway->get_publishable_key(); ?>');
-					// Checkout button element.
 					var button = document.getElementById('membership-stripe-checkout-button');
-					// On button click redirect to checkout.
 					button.addEventListener('click', function () {
 						stripe.redirectToCheckout({
-							// Custom created session id.
-							sessionId: '<?php echo $gateway->get_session( $invoice->membership_id ); ?>'
+							sessionId: '<?php echo $gateway->get_session( $invoice->membership_id, $subscription->id, $this->data['step'] ); ?>'
 						}).then(function (result) {
 							window.alert('Payment failed. Please try agin.');
 						});
