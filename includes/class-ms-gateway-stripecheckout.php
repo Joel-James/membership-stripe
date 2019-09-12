@@ -56,6 +56,15 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	protected $test_publishable_key = '';
 
 	/**
+	 * Stripe test singing secret (sandbox).
+	 *
+	 * @var string $test_signing_secret
+	 *
+	 * @since 1.0.0
+	 */
+	protected $test_signing_secret = '';
+
+	/**
 	 * Stripe publishable key (live).
 	 *
 	 * @var string $publishable_key
@@ -63,6 +72,15 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	 * @since  1.0.0
 	 */
 	protected $publishable_key = '';
+
+	/**
+	 * Stripe singing secret (live).
+	 *
+	 * @var string $publishable_key
+	 *
+	 * @since  1.0.0
+	 */
+	protected $signing_secret = '';
 
 	/**
 	 * Stripe Vendor Logo.
@@ -162,6 +180,23 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	}
 
 	/**
+	 * Get Stripe webhook signing secret.
+	 *
+	 * The secret key should be used to verify the webhook events.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string The Stripe webhook secret.
+	 */
+	public function get_signing_secret() {
+		if ( $this->is_live_mode() ) {
+			return $this->signing_secret;
+		} else {
+			return $this->test_signing_secret;
+		}
+	}
+
+	/**
 	 * Creates the external Stripe-ID of the specified item.
 	 *
 	 * This ID takes the current WordPress Site-URL into account to avoid
@@ -241,23 +276,30 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	 *
 	 * @param MS_Model_Relationship $subscription The related membership relationship.
 	 *
-	 * @todo We need to properly handle the payment return. Currently we are always marking
-	 *       the invoice as paid.
-	 *
 	 * @since 1.0.0
+	 *
+	 * @todo  We need to properly handle the payment return. Currently we are always marking
+	 *       the invoice as paid.
 	 *
 	 * @return mixed|void
 	 */
 	public function process_purchase( $subscription ) {
-		$success     = false;
+		$success = false;
 
 		$this->_api->set_gateway( $this );
 
+		$subscription = MS_Factory::load(
+			'MS_Model_Relationship',
+			$subscription->id
+		);
+
 		// Get the invoice.
-		$invoice = $subscription->get_next_billable_invoice();
+		$invoice = $subscription->get_previous_invoice();
+		error_log(print_r($invoice,true));
+		$note = '';
 
 		// If the stripe flag is true.
-		if ( isset( $_GET['stripe-checkout-success'] ) && 1 == $_GET['stripe-checkout-success'] ) {
+		/*if ( isset( $_GET['stripe-checkout-success'] ) && 1 == $_GET['stripe-checkout-success'] ) {
 			try {
 				// Free, just process.
 				if ( 0 == $invoice->total ) {
@@ -277,7 +319,7 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 		} else {
 			// Payment failed.
 			$note = __( 'Stripe payment failed. Please try again.', 'membership-stripe' );
-		}
+		}*/
 
 		// Save invoice.
 		$invoice->gateway_id = self::ID;
@@ -414,6 +456,138 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	}
 
 	/**
+	 * Process Stripe Checkout WebHook requests.
+	 *
+	 * We will get webhook notification whenever the payements are processed
+	 * by the Stripe.
+	 *
+	 * @since 1.0.0
+	 */
+	public function handle_webhook() {
+		// Setup gateway.
+		$this->_api->set_gateway( $this );
+
+		// Webhook data.
+		$payload = @file_get_contents( 'php://input' );
+
+		// Get webhook signature.
+		$sig_header = isset( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ? $_SERVER['HTTP_STRIPE_SIGNATURE'] : null;
+
+		$event = $this->_api->get_webhook_event( $payload, $sig_header );
+
+		// Log the data.
+		$this->log( $payload );
+
+		// Only required events needs to be processed.
+		if ( ! $this->valid_event( $event->type ) ) {
+			// No need to process this event.
+			http_response_code( 200 );
+			exit();
+		}
+		error_log( $event->type );
+
+		// Handle the checkout.session.completed event
+		if ( 'checkout.session.completed' === $event->type ) {
+			//return $this->process_invoice_payment( $event->data->object->subscription );
+		} elseif ( 'invoice.payment_succeeded' === $event->type ) {
+			return $this->process_invoice_payment( $event->data->object->subscription );
+		} elseif ( 'customer.subscription.deleted' === $event->type || 'invoice.payment_failed' === $event->type ) {
+			$this->process_cancel( $event->data->object->subscription );
+		}
+
+		return true;
+	}
+
+	/**
+	 * @param \Stripe\Checkout\Session $session
+	 */
+	private function process_invoice_payment( $subscription_id ) {
+		// Get the Stripe subscription.
+		$subscription = $this->_api->retrieve_subscription( $subscription_id );
+
+		// Try if we can get the relationship id from subscription.
+		if ( isset( $subscription->metadata['ms_relationship_id'] ) ) {
+			$relationship = MS_Factory::load(
+				'MS_Model_Relationship',
+				$subscription->metadata['ms_relationship_id']
+			);
+
+			$invoice    = $relationship->get_current_invoice();
+			$membership = $relationship->get_membership();
+
+			if ( $invoice ) {
+				if ( $invoice->status == MS_Model_Invoice::STATUS_PAID ) {
+					$invoice = $subscription->get_next_invoice();
+				}
+
+				$invoice->ms_relationship_id = $relationship->id;
+				$invoice->membership_id      = $membership->id;
+
+				if ( 0 == $invoice->total ) {
+					// Free, just process.
+					$invoice->changed();
+					$success = true;
+					$notes   = __( 'No payment required for free membership', 'membership2' );
+					$invoice->add_notes( $notes );
+				} else {
+					$notes           = __( 'Payment successful', 'membership2' );
+					$success         = true;
+					$invoice->status = MS_Model_Invoice::STATUS_PAID;
+					$invoice->pay_it( self::ID, $subscription->latest_invoice );
+					$invoice->add_notes( $notes );
+					if ( defined( 'MS_STRIPE_PLAN_RENEWAL_MAIL' ) && MS_STRIPE_PLAN_RENEWAL_MAIL ) {
+						MS_Model_Event::save_event( MS_Model_Event::TYPE_MS_RENEWED, $subscription );
+					}
+				}
+				$invoice->save();
+			} else {
+				$this->log( 'Invoice not found after session completion' );
+			}
+		} else {
+			$this->log( 'Could not find Stripe subscription : ' . $subscription_id );
+		}
+	}
+
+	private function process_cancel( $subscription_id ) {
+		// Get the Stripe subscription.
+		$subscription = $this->_api->retrieve_subscription( $subscription_id );
+
+		// Try if we can get the relationship id from subscription.
+		if ( isset( $subscription->metadata['ms_relationship_id'] ) ) {
+			$relationship = MS_Factory::load(
+				'MS_Model_Relationship',
+				$subscription->metadata['ms_relationship_id']
+			);
+			$relationship->cancel_membership();
+		} else {
+			$this->log( 'Could not find Stripe subscription : ' . $subscription_id );
+		}
+	}
+
+	/**
+	 * Valid Stripe events to check.
+	 *
+	 * We need to process only these events.
+	 *
+	 * @param string $event The event.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return bool
+	 */
+	private function valid_event( $event ) {
+		$valid_events = [
+			'checkout.session.completed',
+			'invoice.created',
+			'invoice.payment_succeeded',
+			'customer.subscription.deleted',
+			'invoice.payment_failed',
+		];
+
+		return in_array( $event, $valid_events );
+	}
+
+	/**
 	 * Auto-update some fields of the _api instance if required.
 	 *
 	 * @param string $key   Field name.
@@ -427,8 +601,10 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 		switch ( $key ) {
 			case 'test_secret_key':
 			case 'test_publishable_key':
+			case 'test_signing_secret':
 			case 'secret_key':
 			case 'publishable_key':
+			case 'signing_secret':
 				$this->_api->$key = $value;
 				break;
 		}

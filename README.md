@@ -6,6 +6,8 @@
 
 ### Important 💰
 
+**Do not forget to setup webhook url in Stripe dashboard. You can find the webhook url in Gateway settings page of Membership plugin.**
+
 There are few limitations because this plugin is currently in beta. But I will try to get them working when I get some free time.
 
 * Coupons are not yet supported as the Stripe Checkout API is not directly supporting it.

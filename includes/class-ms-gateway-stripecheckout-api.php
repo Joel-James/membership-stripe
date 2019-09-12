@@ -6,9 +6,11 @@ require_once M2STRIPE_DIR . '/vendor/autoload.php';
 use Stripe\Stripe as StripeCheckout;
 use Stripe\Plan as StripeCheckoutPlan;
 use Stripe\Charge as StripeCheckoutCharge;
+use Stripe\Webhook as StripeCheckoutWebhook;
 use Stripe\Customer as StripeCheckoutCustomer;
 use Stripe\Checkout\Session as StripeCheckoutSession;
 use Stripe\Subscription as StripeCheckoutSubscription;
+use Stripe\Exception\SignatureVerificationException;
 
 /**
  * Class that handles API functionality of Stripe checkout.
@@ -61,6 +63,13 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 
 		// If we don't set this, Stripe will use latest version, which may break our implementation.
 		StripeCheckout::setApiVersion( '2019-09-09' );
+
+		// Setup plugin info.
+		StripeCheckout::setAppInfo(
+			'Membership 2 - Stripe Checkout',
+			M2STRIPE_VERSION,
+			site_url()
+		);
 	}
 
 	/**
@@ -91,10 +100,13 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 			$session = StripeCheckoutSession::create( [
 				'payment_method_types' => [ 'card' ],
 				'subscription_data'    => [
-					'items' => [
+					'items'    => [
 						[
 							'plan' => $plan,
 						],
+					],
+					'metadata' => [
+						'ms_relationship_id' => $subscription_id,
 					],
 				],
 				'success_url'          => site_url() . add_query_arg( $return_args_success ),
@@ -249,6 +261,31 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 		}
 
 		return $charge;
+	}
+
+	/**
+	 * Fetches an existing subscription from Stripe using ID.
+	 *
+	 * @param string $subscription_id Subscription ID.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return StripeCheckoutSubscription|false The resulting subscription object.
+	 */
+	public function retrieve_subscription( $subscription_id ) {
+		// First check cache.
+		$subscription = wp_cache_get( 'stripe_subscription_' . $subscription_id, 'membership-stripe' );
+
+		// Get from API.
+		if ( empty( $subscription ) ) {
+			try {
+				$subscription = StripeCheckoutSubscription::retrieve( $subscription_id );
+			} catch ( Exception $e ) {
+				$subscription = false;
+			}
+		}
+
+		return $subscription;
 	}
 
 	/**
@@ -432,5 +469,34 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 			$all_items,
 			HOUR_IN_SECONDS
 		);
+	}
+
+	/**
+	 * Get the event object from the webhook payload.
+	 *
+	 * @param string $payload    Webhook data.
+	 * @param string $sig_header Webhook signature.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return \Stripe\Event|void
+	 */
+	public function get_webhook_event( $payload, $sig_header ) {
+		try {
+			// Construct the event data after verification.
+			$event = StripeCheckoutWebhook::constructEvent(
+				$payload, $sig_header, $this->_gateway->get_signing_secret()
+			);
+
+			return $event;
+		} catch ( UnexpectedValueException $e ) {
+			// Invalid payload.
+			http_response_code( 400 );
+			exit();
+		} catch ( SignatureVerificationException $e ) {
+			// Invalid signature.
+			http_response_code( 400 );
+			exit();
+		}
 	}
 }

@@ -20,7 +20,7 @@ class MS_Gateway_StripeCheckout_View_Settings extends MS_View {
 					'</a>'
 				),
 				sprintf(
-					__( 'Set up the url <strong>%s</strong> in your %sStripe Webhook Settings%s', 'membership2' ),
+					__( 'Set up the url <strong>%s</strong> in your %sStripe Webhook Settings%s. You can find the webhook singing secret in webhook setup page.', 'membership2' ),
 					$this->data['model']->get_webhook_url(),
 					'<a href="https://dashboard.stripe.com/account/webhooks" target="_blank">',
 					'</a>'
@@ -73,6 +73,15 @@ class MS_Gateway_StripeCheckout_View_Settings extends MS_View {
 				'ajax_data' => array( 1 ),
 			),
 
+			'test_signing_secret' => array(
+				'id' => 'test_signing_secret',
+				'title' => __( 'Webhook Test Signing Secret', 'membership2' ),
+				'type' => MS_Helper_Html::INPUT_TYPE_TEXT,
+				'value' => $gateway->test_signing_secret,
+				'class' => 'ms-text-large',
+				'ajax_data' => array( 1 ),
+			),
+
 			'secret_key' => array(
 				'id' => 'secret_key',
 				'title' => __( 'API Live Secret Key', 'membership2' ),
@@ -87,6 +96,15 @@ class MS_Gateway_StripeCheckout_View_Settings extends MS_View {
 				'title' => __( 'API Live Publishable Key', 'membership2' ),
 				'type' => MS_Helper_Html::INPUT_TYPE_TEXT,
 				'value' => $gateway->publishable_key,
+				'class' => 'ms-text-large',
+				'ajax_data' => array( 1 ),
+			),
+
+			'signing_secret' => array(
+				'id' => 'signing_secret',
+				'title' => __( 'Webhook Signing Secret', 'membership2' ),
+				'type' => MS_Helper_Html::INPUT_TYPE_TEXT,
+				'value' => $gateway->signing_secret,
 				'class' => 'ms-text-large',
 				'ajax_data' => array( 1 ),
 			),

@@ -17,6 +17,9 @@ defined( 'WPINC' ) || die;
 // Plugin directory.
 define( 'M2STRIPE_DIR', plugin_dir_path( __FILE__ ) );
 
+// Plugin directory.
+define( 'M2STRIPE_VERSION', '1.0.0' );
+
 // Load required files.
 add_action( 'plugins_loaded', 'membership_stripe_load_dependencies' );
 
