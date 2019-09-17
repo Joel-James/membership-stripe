@@ -83,6 +83,9 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	 */
 	public function get_session( $plan, $subscription_id, $step ) {
 		try {
+			// Get current member.
+			$member = MS_Model_Member::get_current_member();
+
 			// Base items required.
 			$return_args = [
 				'step'               => $step,
@@ -99,6 +102,7 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 
 			$session = StripeCheckoutSession::create( [
 				'payment_method_types' => [ 'card' ],
+				'customer_email'       => $member->email,
 				'subscription_data'    => [
 					'items'    => [
 						[

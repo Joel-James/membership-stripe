@@ -332,7 +332,7 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 		 *
 		 * @since 1.0.0
 		 */
-		do_action( 'ms_gateway_transaction_log', self::ID, $success, $subscription->id, $invoice->id, $invoice->total, $note, '' );
+		do_action( 'ms_gateway_transaction_log', self::ID, 'process', $success, $subscription->id, $invoice->id, $invoice->total, $note, '' );
 
 		return $invoice;
 	}

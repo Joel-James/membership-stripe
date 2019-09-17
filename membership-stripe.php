@@ -20,36 +20,39 @@ define( 'M2STRIPE_DIR', plugin_dir_path( __FILE__ ) );
 // Plugin directory.
 define( 'M2STRIPE_VERSION', '1.0.0' );
 
-// Load required files.
-add_action( 'plugins_loaded', 'membership_stripe_load_dependencies' );
+if ( class_exists( 'MS_Gateway' ) ) {
 
-// Register our gateway with M2.
-add_filter( 'ms_model_gateway_register', 'membership_stripe_register_gateway' );
+	// Load required files.
+	add_action( 'plugins_loaded', 'membership_stripe_load_dependencies' );
 
-/**
- * Include all required files.
- *
- * @since 1.0.0
- */
-function membership_stripe_load_dependencies() {
-	include_once 'includes/class-ms-gateway-stripecheckout.php';
-	include_once 'includes/class-ms-gateway-stripecheckout-api.php';
-	include_once 'includes/view/class-ms-gateway-stripecheckout-view-button.php';
-	include_once 'includes/view/class-ms-gateway-stripecheckout-view-settings.php';
-}
+	// Register our gateway with M2.
+	add_filter( 'ms_model_gateway_register', 'membership_stripe_register_gateway' );
 
-/**
- * Register custom gatway with Membership 2.
- *
- * @param array $list Existing gateways.
- *
- * @since 1.0.0
- *
- * @return array
- */
-function membership_stripe_register_gateway( $list ) {
-	// Add our custom gateway.
-	$list['stripecheckout'] = 'MS_Gateway_StripeCheckout';
+	/**
+	 * Include all required files.
+	 *
+	 * @since 1.0.0
+	 */
+	function membership_stripe_load_dependencies() {
+		include_once 'includes/class-ms-gateway-stripecheckout.php';
+		include_once 'includes/class-ms-gateway-stripecheckout-api.php';
+		include_once 'includes/view/class-ms-gateway-stripecheckout-view-button.php';
+		include_once 'includes/view/class-ms-gateway-stripecheckout-view-settings.php';
+	}
 
-	return $list;
+	/**
+	 * Register custom gatway with Membership 2.
+	 *
+	 * @param array $list Existing gateways.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return array
+	 */
+	function membership_stripe_register_gateway( $list ) {
+		// Add our custom gateway.
+		$list['stripecheckout'] = 'MS_Gateway_StripeCheckout';
+
+		return $list;
+	}
 }
