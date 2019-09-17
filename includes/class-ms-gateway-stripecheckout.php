@@ -498,6 +498,10 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 			case 'checkout.session.completed':
 				// Currently nothing to do.
 				break;
+			// Handle when new customer is created in Stripe.
+			case 'customer.created':
+				$this->process_customer_creation( $event->data->object->id, $event->data->object->email );
+				break;
 			// Handle the invoice payment event.
 			case 'invoice.payment_succeeded':
 				$this->process_invoice_payment( $event->data->object->subscription );
@@ -639,6 +643,53 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 	}
 
 	/**
+	 * Process the Stripe customer creation web hook request.
+	 *
+	 * Set the gateway profile for the member.
+	 *
+	 * @param string $customer_id Stripe customer ID.
+	 * @param string $email       Stripe email ID.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	private function process_customer_creation( $customer_id, $email ) {
+		// Get the WP user.
+		$user = get_user_by_email( $email );
+
+		if ( ! $user instanceof WP_User ) {
+			$this->log(
+				sprintf(
+					__( 'Could not find a user for email : %s', 'membership-stripe' ),
+					$email
+				)
+			);
+
+			return;
+		}
+
+		// Get Member.
+		$member = MS_Factory::load(
+			'MS_Model_Member',
+			$user->ID
+		);
+
+		// Set the gateway profile.
+		if ( $member instanceof MS_Model_Member ) {
+			$member->set_gateway_profile( self::ID, 'customer_id', $customer_id );
+			$member->save();
+		} else {
+			$this->log(
+				sprintf(
+					__( 'Could not find a member for Stripe customer : %s', 'membership-stripe' ),
+					$customer_id
+				)
+			);
+		}
+	}
+
+	/**
 	 * Process the Stripe cancellation web hook request.
 	 *
 	 * When a subscription is cancelled in Stripe, we need to cancel
@@ -737,6 +788,7 @@ class MS_Gateway_StripeCheckout extends MS_Gateway {
 			'invoice.payment_succeeded',
 			'customer.subscription.deleted',
 			'invoice.payment_failed',
+			'customer.created',
 		];
 
 		return in_array( $event, $valid_events );

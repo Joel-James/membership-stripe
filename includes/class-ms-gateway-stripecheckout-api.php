@@ -75,7 +75,9 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	/**
 	 * Create and return a new checkout session.
 	 *
-	 * @param string $plan Plan ID.
+	 * @param string $plan            Plan ID.
+	 * @param string $subscription_id Subscription ID.
+	 * @param int    $step            Step.
 	 *
 	 * @since 1.0.0
 	 *
@@ -85,6 +87,9 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 		try {
 			// Get current member.
 			$member = MS_Model_Member::get_current_member();
+
+			// Get Stripe customer if found.
+			$customer = $this->find_customer( $member );
 
 			// Base items required.
 			$return_args = [
@@ -100,7 +105,7 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 			$return_args_success = array_merge( [ 'stripe-checkout-success' => 1 ], $return_args );
 			$return_args_cancel  = array_merge( [ 'stripe-checkout-success' => 0 ], $return_args );
 
-			$session = StripeCheckoutSession::create( [
+			$session_args = [
 				'payment_method_types' => [ 'card' ],
 				'customer_email'       => $member->email,
 				'subscription_data'    => [
@@ -115,7 +120,16 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 				],
 				'success_url'          => site_url() . add_query_arg( $return_args_success ),
 				'cancel_url'           => site_url() . add_query_arg( $return_args_cancel ),
-			] );
+			];
+
+			// If Stripe custom already exist.
+			if ( ! empty( $customer->id ) ) {
+				$session_args['customer'] = $customer->id;
+				unset( $session_args['customer_email'] );
+			}
+
+			// Create session.
+			$session = StripeCheckoutSession::create( $session_args );
 
 			// Get generated session id.
 			$session = $session->id;
@@ -165,7 +179,7 @@ class MS_Gateway_StripeCheckout_Api extends MS_Model_Option {
 	 *
 	 * @since  1.0.0
 	 *
-	 * @return StripeCheckoutCustomer $customer
+	 * @return StripeCheckoutCustomer|null $customer
 	 */
 	public function find_customer( $member ) {
 		$customer_id = $member->get_gateway_profile( self::ID, 'customer_id' );
